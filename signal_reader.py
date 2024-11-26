@@ -5,7 +5,9 @@ from openai import OpenAI
 from datetime import datetime
 import requests
 import json
+from dotenv import load_dotenv
 import os
+load_dotenv()
 
 
 login_url = "https://www.k2xch.com/prod-api/user/login"
@@ -25,12 +27,13 @@ MODEL=os.getenv("MODEL")
 OPENAI_API_KEY=os.getenv("OPENAI_API_KEY")
 openaiClient = OpenAI(api_key=OPENAI_API_KEY)
 
-SOURCE_GROUP = os.getenv("SOURCE_GROUP")
-TARGET_USER = os.getenv("TARGET_USER")
-SPECIFIC_USER = os.getenv("SPECIFIC_USER")
+SOURCE_GROUP = int(os.getenv("SOURCE_GROUP"))
+TARGET_USER = int(os.getenv("TARGET_USER"))
+SPECIFIC_USER = int(os.getenv("SPECIFIC_USER"))
 
 # Initialize the Telegram client
-client = TelegramClient('bot_session', API_ID, API_HASH)
+phone_client = TelegramClient('phone_session', API_ID, API_HASH)
+bot_client = TelegramClient('bot_session', API_ID, API_HASH)
 
 def prompt_openai(prompt_text):
     try:
@@ -65,17 +68,13 @@ async def request(params):
         print("An error occurred:", e)
 
 
-@client.on(events.NewMessage)
+@phone_client.on(events.NewMessage)
 async def handler(event):
-    print("HERE")
-    # chat = await event.get_chat()
     sender = await event.get_sender()
-    # entity = await client.get_entity(SOURCE_GROUP)
-    # print(f"Successfully resolved entity: {entity}")
     print(f"Message forwarded: {event.message.text}")
     print(sender.username)
 
-    if event.sender and event.sender.username == SPECIFIC_USER:
+    if event.sender and event.sender.id == SPECIFIC_USER:
         # Forward the message to the target user
         response = prompt_openai("The following text after :: as the input contains a message from a telegram channel, analyze it and if " 
             +" the message contains a signal for trading that includes direction and the time is given in AST (Arabia Standard Time) with (hh:mm) format in the input."
@@ -86,12 +85,10 @@ async def handler(event):
             +", time type is a integer value given in the input. If it doesn't contain information about signal only return 'NONE'. Only return 'NONE' or json values extracted from input. " 
             +" The Json contains these fields (Toronto_time, Tehran_time, type, direction, time_type, stage, account_portion). don't include extra words in your json string, it should be convertable in python to dictionary. :: " + event.message.text)
         if(response != "NONE"):
-            await client.send_message(TARGET_USER, event.message.text)
-            await client.send_message(TARGET_USER, response)
+            await bot_client.send_message(TARGET_USER, event.message.text)
+            await bot_client.send_message(TARGET_USER, response)
             response = clean_gpt_response(response)
             await trade(response)
-        else:
-            print (response)
 
 def clean_gpt_response(chatgpt_string):
     cleaned_string = chatgpt_string.replace("```", "").replace("json", "").strip()
@@ -152,15 +149,19 @@ async def trade(signal):
 
 
 async def main():
-    await client.start(bot_token=BOT_TOKEN)
+    await phone_client.start(phone=PHONE)
+    await bot_client.start(bot_token=BOT_TOKEN)
  
-    me = await client.get_me()
+    me = await phone_client.get_me()
+    me = await bot_client.get_me()
     print(f"Logged in as {me.username}")
     print("Bot is running...")
-    await client.run_until_disconnected()
+    await phone_client.run_until_disconnected()
+    await bot_client.run_until_disconnected()
     
 
 if __name__ == '__main__':
-
-    with client:
-        client.loop.run_until_complete(main())
+    with phone_client:
+        phone_client.loop.run_until_complete(main())
+    with bot_client:
+        bot_client.loop.run_until_complete(main())
